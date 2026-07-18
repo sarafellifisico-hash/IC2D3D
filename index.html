@@ -91,7 +91,7 @@
 <body>
     <div id="controls">
         <button class="toggle-btn" onclick="togglePanel('controls')" title="Minimizar/Maximizar Painel">≡</button>
-        <h2 style="margin:0 0 14px 0; color:#ffcc00; font-size:15px;">Cyclic Interaction between Compalphas in a Vacuum Tube</h2>
+        <h2 style="margin:0 0 14px 0; color:#ffcc00; font-size:15px;">Cyclic Interaction between Compalphas in a Vacuum Tube</h2><div style="font-size:9px;color:#00ffcc;margin-bottom:6px;">● RADIAL FIX v8 — CORRECTED AXIS | LENGTH LOCKED 18m | RADIAL ONLY | TUBE LIMIT</div>
 
         <div class="slider-container">
             <label for="amplitudeSlider">Oscillatory Amplitude: <span id="amplitudeValue">20°</span> | <span id="amplitudeRadValue">0.349 rad</span></label>
@@ -272,94 +272,62 @@
 
         function updatePlasmaVisuals(ampEffDeg, angularFreq, sinW, cosW, Etotal, Enorm){
             const {hex, name, band, index, t, clamped} = getPlasmaColorForAmplitude(ampEffDeg);
-            // Base colors
             plasmaCoreMat.color.setHex(hex);
             plasmaGlowMat.color.setHex(hex);
             plasmaOuterMat.color.setHex(hex);
             plasmaLight.color.setHex(hex);
 
-            // --- STRONGER PULSATION ---
             const absSin = Math.abs(sinW);
-            const absCos = Math.abs(cosW);
-            const freqNorm = Math.min(1, frequency/15);
             const ampNorm = Math.min(1, ampEffDeg/90);
-            // Strong pulse driven by instantaneous oscillation + frequency + amplitude
-            const strongPulse = 1.0 + absSin*0.75 + absCos*0.25 + freqNorm*0.35 + ampNorm*0.25;
-            const fastFlicker = 1.0 + 0.12*Math.sin(oscillationPhase*7.3) + 0.08*Math.sin(oscillationPhase*13.7);
-            const finalPulse = strongPulse * fastFlicker;
+            const freqNorm = Math.min(1, frequency/15);
 
-            // Scale core and glows - pulsating much stronger now
-            plasmaCore.scale.set(1, finalPulse*0.9, finalPulse*0.9);
-            plasmaGlow.scale.set(1, finalPulse*1.15, finalPulse*1.15);
-            plasmaOuter.scale.set(1, finalPulse*1.35, finalPulse*1.35);
+            // RADIAL ONLY: length fixed at 18 ( -9 to +9 ), only diameter pulses
+            // Synchronized with Compalpha frequency via |sinW|
+            let radialPulse = 1.0 + absSin*1.2 + freqNorm*0.4 + ampNorm*0.3;
 
-            // --- WHITE INTENSITY INCREASING WITH ENERGY ---
-            // Base intensity from amplitude
-            let baseIntensity = 0.3 + ampNorm*0.9;
-            // Add frequency contribution (E ~ f^2)
-            baseIntensity += freqNorm*0.6;
-            // Add kinetic bursts
-            baseIntensity += absCos*0.5;
-
-            // White boost: when in WHITE band, intensity grows sharply
             let whiteBoost = 0;
             if(index === 6){
-                // t goes 0->1 inside white band (77.1-90)
-                const whiteProgress = t; // 0 at start of white, 1 at 90deg
-                whiteBoost = 0.8 + whiteProgress*2.2 + ampNorm*1.2; // ramps up
-                // Make white really bloom
+                const whiteProgress = t;
+                whiteBoost = 0.8 + whiteProgress*2.0;
                 plasmaCoreMat.color.setHex(0xffffff);
-                // Glow becomes slightly bluish-white then pure white
-                const lerpToWhite = 0.6 + whiteProgress*0.4;
-                plasmaGlowMat.color.setRGB(lerpToWhite, lerpToWhite, 1.0);
-                plasmaOuterMat.color.setRGB(1.0, 1.0, 1.0);
                 plasmaLight.color.setHex(0xffffff);
-            } else if(index === 5 && t > 0.6){
-                // Pre-white transition: violet -> white mix
-                const mix = (t-0.6)/0.4;
-                plasmaGlowMat.color.setRGB(0.6+0.4*mix, 0.4*mix, 0.85+0.15*mix);
+                radialPulse += whiteBoost*0.5;
             }
 
-            // Opacity and light intensity driven by total oscillatory energy Enorm (0-1)
-            const energyBoost = Enorm !== undefined ? Enorm : ampNorm;
-            const glowOpacity = (0.28 + baseIntensity*0.55 + whiteBoost*0.35) * (0.6 + energyBoost*0.8);
-            const outerOpacity = (0.12 + baseIntensity*0.30 + whiteBoost*0.35) * (0.5 + energyBoost*0.9);
+            // Clamp to tube diameter - never exceed glass wall
+            // tubeRadius ~0.975, tubeDiameter ~1.95
+            const maxCore = (tubeRadius*0.50)/0.04;
+            const maxGlow = (tubeRadius*0.85)/0.14;
+            const maxOuter = (tubeRadius*0.95)/0.32;
 
-            plasmaGlowMat.opacity = Math.min(0.95, glowOpacity);
-            plasmaOuterMat.opacity = Math.min(0.65, outerOpacity);
+            let coreR = Math.min(radialPulse*0.9, maxCore);
+            let glowR = Math.min(radialPulse*1.2, maxGlow);
+            let outerR = Math.min(radialPulse*1.5 + whiteBoost*0.6, maxOuter);
 
-            // Light intensity: base + white boost + energy + pulse
-            let lightIntensity = 0.8 + baseIntensity*3.2 + whiteBoost*5.5 + absSin*1.5 + energyBoost*2.5;
-            // Extra flash when white at high energy
-            if(index === 6){
-                lightIntensity += 2.0 + whiteBoost*2.0;
-                // Expand outer glow size for white bloom
-                const bloom = 1.0 + whiteBoost*0.6;
-                plasmaOuter.scale.set(bloom, finalPulse*1.5*bloom, finalPulse*1.5*bloom);
-            }
+            // FIXED LENGTH CORRECTED: Cylinder is along local Y, rotated Z 90° => local Y = world X (length)
+            // So to keep length fixed at 18m (-9 to +9), keep Y=1, pulse X and Z (radius)
+            plasmaCore.scale.set(coreR, 1, coreR);
+            plasmaGlow.scale.set(glowR, 1, glowR);
+            plasmaOuter.scale.set(outerR, 1, outerR);
 
-            plasmaLight.intensity = lightIntensity;
-            plasmaLight.distance = 8 + baseIntensity*6 + whiteBoost*8;
+            // Intensity based on energy
+            let baseI = 0.5 + ampNorm*1.0 + freqNorm*0.6;
+            let lightI = 1.0 + baseI*3.0 + whiteBoost*5.0 + absSin*1.5;
+            plasmaLight.intensity = lightI;
+            plasmaLight.distance = 10 + baseI*6 + whiteBoost*6;
 
-            // Core thickness also pulses with energy
-            const coreThick = 0.04 + ampNorm*0.05 + absSin*0.04 + (index===6 ? whiteBoost*0.06 : 0);
-            plasmaCore.scale.y = finalPulse*(0.7 + coreThick*8);
-            plasmaCore.scale.z = finalPulse*(0.7 + coreThick*8);
+            plasmaGlowMat.opacity = Math.min(0.9, 0.3 + baseI*0.4 + whiteBoost*0.3);
+            plasmaOuterMat.opacity = Math.min(0.6, 0.15 + baseI*0.25 + whiteBoost*0.25);
 
-            // UI update
-            const labelEl = document.getElementById('plasmaColorLabel');
-            if(labelEl){
-                labelEl.textContent = name + (index===6 ? ' ★ MAX' : '');
-                labelEl.style.color = '#'+hex.toString(16).padStart(6,'0');
-                if(index===6) labelEl.style.textShadow = '0 0 8px #fff';
-                else labelEl.style.textShadow = 'none';
-            }
-            const bandEl = document.getElementById('plasmaBandLabel');
-            if(bandEl) bandEl.textContent = band + (index===6 ? ` (${(whiteBoost*100).toFixed(0)}% bloom)` : '');
+            // UI
+            const lbl = document.getElementById('plasmaColorLabel');
+            if(lbl){ lbl.textContent = name + (index===6?' ★':'' ); lbl.style.color = '#'+hex.toString(16).padStart(6,'0'); }
+            const bnd = document.getElementById('plasmaBandLabel');
+            if(bnd) bnd.textContent = band + ` | RADIAL x${radialPulse.toFixed(2)} | FIXED LEN`;
             const ampEl = document.getElementById('plasmaAmpLabel');
-            if(ampEl) ampEl.textContent = ampEffDeg.toFixed(1)+'°' + (Enorm!==undefined ? ` | E:${(Enorm*100).toFixed(0)}%` : '');
-            const energyEl = document.getElementById('plasmaEnergyLabel');
-            if(energyEl) energyEl.textContent = 'I: '+lightIntensity.toFixed(1) + (index===6 ? ' +WHITE BOOST' : '');
+            if(ampEl) ampEl.textContent = ampEffDeg.toFixed(1)+'°';
+            const eEl = document.getElementById('plasmaEnergyLabel');
+            if(eEl) eEl.textContent = `I:${lightI.toFixed(1)} Ø:${(outerR*0.64).toFixed(2)}/${tubeDiameter.toFixed(2)}`;
         }
 
 
